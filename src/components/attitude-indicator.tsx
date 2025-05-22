@@ -10,9 +10,12 @@ interface AttitudeIndicatorProps {
 }
 
 export function AttitudeIndicator({ roll, pitch, size = 200, darkMode = true }: AttitudeIndicatorProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
+    // Invert the pitch value to compensate for flipped data
+    const adjustedPitch = pitch;
+
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -55,24 +58,24 @@ export function AttitudeIndicator({ roll, pitch, size = 200, darkMode = true }: 
     ctx.translate(centerX, centerY);
 
     // Rotate for roll
-    ctx.rotate((roll * Math.PI) / 180);
+    ctx.rotate(((roll + 180) * Math.PI) / 180);
 
     // Adjust for pitch (move horizon up/down)
-    const pitchOffset = (pitch / 45) * radius;
+    const pitchOffset = (adjustedPitch / 45) * radius;
 
     // Draw sky and ground - make them much larger to avoid seeing edges during rotation
     const extendedSize = radius * 3; // Make the rectangles much larger than the visible area
-
-    // Sky (blue) - should be ABOVE the horizon (negative pitch direction)
-    ctx.beginPath();
-    ctx.rect(-extendedSize, -extendedSize - pitchOffset, extendedSize * 2, extendedSize);
-    ctx.fillStyle = "#3498db"; // Sky blue
-    ctx.fill();
 
     // Ground (brown) - should be BELOW the horizon (positive pitch direction)
     ctx.beginPath();
     ctx.rect(-extendedSize, -pitchOffset, extendedSize * 2, extendedSize);
     ctx.fillStyle = "#8B4513"; // Brown for ground
+    ctx.fill();
+
+    // Sky (blue) - should be ABOVE the horizon (negative pitch direction)
+    ctx.beginPath();
+    ctx.rect(-extendedSize, -extendedSize, extendedSize * 2, extendedSize - pitchOffset);
+    ctx.fillStyle = "#3498db"; // Sky blue
     ctx.fill();
 
     // Draw horizon line
@@ -116,7 +119,7 @@ export function AttitudeIndicator({ roll, pitch, size = 200, darkMode = true }: 
     for (let i = -30; i <= 30; i += 10) {
       if (i % 20 === 0) continue; // Skip the 20 degree lines we already drew
 
-      const lineY = -pitchOffset - (i / 45) * radius;
+      const lineY = -pitchOffset + (i / 45) * radius;
 
       // Only draw if within view
       if (lineY > -radius && lineY < radius) {
@@ -180,7 +183,7 @@ export function AttitudeIndicator({ roll, pitch, size = 200, darkMode = true }: 
     ctx.stroke();
 
     ctx.restore();
-  }, [roll, pitch, size, darkMode])
+  }, [roll, pitch, size, darkMode]);
 
   return (
     <div className="relative">
@@ -192,5 +195,5 @@ export function AttitudeIndicator({ roll, pitch, size = 200, darkMode = true }: 
         style={{ width: `${size}px`, height: `${size}px` }}
       />
     </div>
-  )
+  );
 }
