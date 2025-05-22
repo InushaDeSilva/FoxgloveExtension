@@ -1,9 +1,9 @@
 {
   "name": "LighthouseExt",
   "displayName": "LighthouseExt",
-  "description": "",
-  "publisher": "unknown",
-  "homepage": "",
+  "description": "Drone telemetry visualization panels for Foxglove Studio",
+  "publisher": "your-org-name",
+  "homepage": "https://github.com/your-org/LighthouseExt",
   "version": "0.1.0",
   "license": "UNLICENSED",
   "main": "./dist/extension.js",
