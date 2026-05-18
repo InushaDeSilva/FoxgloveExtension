@@ -1,6 +1,5 @@
 import type { PanelExtensionContext, Topic } from "@foxglove/extension";
 import {
-  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -158,10 +157,6 @@ export function useIslTelemetryPanel(context: PanelExtensionContext) {
 
   const { allImuTopicNames } = buildImuTopicOptionLists(availableTopics, selectedImuTopic);
 
-  const handleImuTopicChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
-    setSelectedImuTopic(e.target.value);
-  }, []);
-
   const shortSide = Math.min(containerWidth, containerHeight);
   const baseFont = Math.round(Math.max(11, Math.min(24, shortSide * 0.038 + 4)));
 
@@ -175,7 +170,6 @@ export function useIslTelemetryPanel(context: PanelExtensionContext) {
     selectedImuTopic,
     setSelectedImuTopic,
     allImuTopicNames,
-    handleImuTopicChange,
     baseFont,
     shortSide,
   };

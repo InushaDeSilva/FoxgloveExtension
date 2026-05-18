@@ -162,6 +162,36 @@ export function buildImuTopicOptionLists(
   return { imuTopics, allImuTopicNames };
 }
 
+/** Options for Foxglove panel settings `select` (IMU + other topics). */
+export function buildImuTopicSelectOptions(
+  availableTopics: readonly Topic[],
+  allImuTopicNames: string[],
+): Array<{ label: string; value: undefined | string }> {
+  const opts: Array<{ label: string; value: undefined | string }> = [
+    { label: "— None —", value: undefined },
+  ];
+  const seen = new Set<string | undefined>([undefined]);
+  for (const name of allImuTopicNames) {
+    if (!seen.has(name)) {
+      seen.add(name);
+      opts.push({ label: name, value: name });
+    }
+  }
+  for (const t of availableTopics) {
+    if (!seen.has(t.name)) {
+      seen.add(t.name);
+      opts.push({ label: `${t.name} (${t.schemaName})`, value: t.name });
+    }
+  }
+  return opts;
+}
+
+/** Largest square that fits in the inner box (instruments). */
+export function maxSquareInstrumentSize(innerWidth: number, innerHeight: number, max = 800): number {
+  const side = Math.min(Math.max(0, innerWidth), Math.max(0, innerHeight));
+  return Math.max(56, Math.min(side, max));
+}
+
 export interface PanelImuTopicState {
   selectedImuTopic?: string;
 }

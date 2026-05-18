@@ -46,7 +46,7 @@ export function IMUDisplay({
   const s = plotSize / 200;
   const labelSize = Math.max(10, Math.round(fontPx * 0.85));
   const valueSize = Math.max(11, Math.round(fontPx * 0.95));
-  const vizSize = Math.max(80, plotSize);
+  const vizSize = Math.max(56, plotSize);
 
   const colors = {
     sectionLabel: theme.textMuted,
