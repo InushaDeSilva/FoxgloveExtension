@@ -13,118 +13,105 @@ export function AttitudeIndicator({ roll, pitch, size = 200, darkMode = true }: 
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    // Invert the pitch value to compensate for flipped data
     const adjustedPitch = pitch;
-
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Set canvas size with device pixel ratio for sharp rendering
     const dpr = window.devicePixelRatio || 1;
     canvas.width = size * dpr;
     canvas.height = size * dpr;
     ctx.scale(dpr, dpr);
-
-    // Clear canvas
     ctx.clearRect(0, 0, size, size);
 
-    // Constants
+    // Scale factor for proportional elements
+    const s = size / 200;
+
     const centerX = size / 2;
     const centerY = size / 2;
     const radius = size * 0.45;
 
-    // Draw outer bezel
+    const bezel = darkMode ? "#252526" : "#e8e8e8";
+    const bezelStroke = darkMode ? "#3c3c3c" : "#c8c8c8";
+    const sky = darkMode ? "#1a3a5c" : "#6ba3d4";
+    const ground = darkMode ? "#3d2e22" : "#a67c52";
+    const horizonColor = darkMode ? "rgba(255,255,255,0.92)" : "rgba(20,20,20,0.85)";
+    const pitchText = darkMode ? "rgba(255,255,255,0.9)" : "rgba(20,20,20,0.85)";
+
+    // Outer bezel
     ctx.beginPath();
-    ctx.arc(centerX, centerY, radius + 5, 0, Math.PI * 2);
-    ctx.fillStyle = darkMode ? "#1a1a1a" : "#e0e0e0";
+    ctx.arc(centerX, centerY, radius + 5 * s, 0, Math.PI * 2);
+    ctx.fillStyle = bezel;
     ctx.fill();
 
     ctx.beginPath();
-    ctx.arc(centerX, centerY, radius + 3, 0, Math.PI * 2);
-    ctx.strokeStyle = darkMode ? "#333" : "#ccc";
-    ctx.lineWidth = 2;
+    ctx.arc(centerX, centerY, radius + 3 * s, 0, Math.PI * 2);
+    ctx.strokeStyle = bezelStroke;
+    ctx.lineWidth = 2 * s;
     ctx.stroke();
 
-    // Create a clipping region for the attitude indicator
+    // Clipping region
     ctx.save();
     ctx.beginPath();
     ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
     ctx.clip();
 
-    // Translate to center
     ctx.translate(centerX, centerY);
-
-    // Rotate for roll
     ctx.rotate(((roll + 180) * Math.PI) / 180);
 
-    // Adjust for pitch (move horizon up/down)
     const pitchOffset = (adjustedPitch / 45) * radius;
+    const extendedSize = radius * 3;
 
-    // Draw sky and ground - make them much larger to avoid seeing edges during rotation
-    const extendedSize = radius * 3; // Make the rectangles much larger than the visible area
-
-    // Ground (brown) - should be BELOW the horizon (positive pitch direction)
+    // Ground
     ctx.beginPath();
     ctx.rect(-extendedSize, -pitchOffset, extendedSize * 2, extendedSize);
-    ctx.fillStyle = "#8B4513"; // Brown for ground
+    ctx.fillStyle = ground;
     ctx.fill();
 
-    // Sky (blue) - should be ABOVE the horizon (negative pitch direction)
+    // Sky
     ctx.beginPath();
     ctx.rect(-extendedSize, -extendedSize, extendedSize * 2, extendedSize - pitchOffset);
-    ctx.fillStyle = "#3498db"; // Sky blue
+    ctx.fillStyle = sky;
     ctx.fill();
 
-    // Draw horizon line
+    // Horizon line
     ctx.beginPath();
     ctx.moveTo(-radius, -pitchOffset);
     ctx.lineTo(radius, -pitchOffset);
-    ctx.strokeStyle = "white";
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = horizonColor;
+    ctx.lineWidth = 2 * s;
     ctx.stroke();
 
-    // Draw pitch lines (every 10 degrees)
-    ctx.strokeStyle = "white";
-    ctx.lineWidth = 1;
-    ctx.fillStyle = "white";
+    // Pitch lines
+    ctx.strokeStyle = horizonColor;
+    ctx.lineWidth = 1 * s;
+    ctx.fillStyle = pitchText;
     ctx.textAlign = "center";
-    ctx.font = "bold 12px Arial";
+    ctx.font = `bold ${Math.round(12 * s)}px system-ui, sans-serif`;
 
-    // Draw 20 degree pitch lines
+    // 20 degree pitch lines
     for (let i = -40; i <= 40; i += 20) {
-      if (i === 0) continue; // Skip horizon line as we already drew it
-
+      if (i === 0) continue;
       const lineY = -pitchOffset - (i / 45) * radius;
-
-      // Only draw if within view
       if (lineY > -radius && lineY < radius) {
-        // Draw longer line for 20 degree marks
         const lineWidth = radius * 0.3;
-
         ctx.beginPath();
         ctx.moveTo(-lineWidth, lineY);
         ctx.lineTo(lineWidth, lineY);
         ctx.stroke();
-
-        // Add pitch value on both sides
-        ctx.fillText(`${Math.abs(i)}`, -lineWidth - 10, lineY + 4);
-        ctx.fillText(`${Math.abs(i)}`, lineWidth + 10, lineY + 4);
+        ctx.fillText(`${Math.abs(i)}`, -lineWidth - 10 * s, lineY + 4 * s);
+        ctx.fillText(`${Math.abs(i)}`, lineWidth + 10 * s, lineY + 4 * s);
       }
     }
 
-    // Draw 10 degree pitch lines (shorter, no numbers)
+    // 10 degree pitch lines (shorter)
     for (let i = -30; i <= 30; i += 10) {
-      if (i % 20 === 0) continue; // Skip the 20 degree lines we already drew
-
+      if (i % 20 === 0) continue;
       const lineY = -pitchOffset + (i / 45) * radius;
-
-      // Only draw if within view
       if (lineY > -radius && lineY < radius) {
         const lineWidth = radius * 0.15;
-
         ctx.beginPath();
         ctx.moveTo(-lineWidth, lineY);
         ctx.lineTo(lineWidth, lineY);
@@ -132,16 +119,12 @@ export function AttitudeIndicator({ roll, pitch, size = 200, darkMode = true }: 
       }
     }
 
-    // Draw 5 degree pitch lines (shortest)
+    // 5 degree pitch lines (shortest)
     for (let i = -35; i <= 35; i += 5) {
-      if (i % 10 === 0) continue; // Skip the 10 and 20 degree lines we already drew
-
+      if (i % 10 === 0) continue;
       const lineY = -pitchOffset - (i / 45) * radius;
-
-      // Only draw if within view
       if (lineY > -radius && lineY < radius) {
         const lineWidth = radius * 0.1;
-
         ctx.beginPath();
         ctx.moveTo(-lineWidth, lineY);
         ctx.lineTo(lineWidth, lineY);
@@ -149,50 +132,49 @@ export function AttitudeIndicator({ roll, pitch, size = 200, darkMode = true }: 
       }
     }
 
-    // Restore context (removes clipping)
     ctx.restore();
 
-    // Draw fixed aircraft reference (yellow T shape)
+    const ref = darkMode ? "#f5c542" : "#c27a00";
+    const rollArc = darkMode ? "rgba(255,255,255,0.75)" : "rgba(30,30,30,0.65)";
+
+    // Fixed aircraft reference (reference mark)
     ctx.beginPath();
-    ctx.moveTo(centerX - 15, centerY);
-    ctx.lineTo(centerX + 15, centerY);
+    ctx.moveTo(centerX - 15 * s, centerY);
+    ctx.lineTo(centerX + 15 * s, centerY);
     ctx.moveTo(centerX, centerY);
-    ctx.lineTo(centerX, centerY + 15);
-    ctx.strokeStyle = "yellow";
-    ctx.lineWidth = 3;
+    ctx.lineTo(centerX, centerY + 15 * s);
+    ctx.strokeStyle = ref;
+    ctx.lineWidth = 3 * s;
     ctx.stroke();
 
-    // Draw roll indicator at the top
+    // Roll indicator at the top
     ctx.save();
     ctx.translate(centerX, centerY);
 
-    // Draw roll arc
     ctx.beginPath();
-    ctx.arc(0, -radius + 10, 10, 0, Math.PI, true);
-    ctx.strokeStyle = "white";
-    ctx.lineWidth = 1;
+    ctx.arc(0, -radius + 10 * s, 10 * s, 0, Math.PI, true);
+    ctx.strokeStyle = rollArc;
+    ctx.lineWidth = 1 * s;
     ctx.stroke();
 
-    // Draw roll indicator
     ctx.rotate((roll * Math.PI) / 180);
     ctx.beginPath();
-    ctx.moveTo(0, -radius + 5);
-    ctx.lineTo(0, -radius + 15);
-    ctx.strokeStyle = "yellow";
-    ctx.lineWidth = 2;
+    ctx.moveTo(0, -radius + 5 * s);
+    ctx.lineTo(0, -radius + 15 * s);
+    ctx.strokeStyle = ref;
+    ctx.lineWidth = 2 * s;
     ctx.stroke();
 
     ctx.restore();
   }, [roll, pitch, size, darkMode]);
 
   return (
-    <div className="relative">
+    <div style={{ position: "relative" }}>
       <canvas
         ref={canvasRef}
         width={size}
         height={size}
-        className="rounded-full"
-        style={{ width: `${size}px`, height: `${size}px` }}
+        style={{ width: `${size}px`, height: `${size}px`, borderRadius: "50%" }}
       />
     </div>
   );
