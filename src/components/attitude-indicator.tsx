@@ -36,7 +36,7 @@ export function AttitudeIndicator({ roll, pitch, size = 200, darkMode = true }: 
     const bezel = darkMode ? "#252526" : "#e8e8e8";
     const bezelStroke = darkMode ? "#3c3c3c" : "#c8c8c8";
     const sky = darkMode ? "#1a3a5c" : "#6ba3d4";
-    const ground = darkMode ? "#3d2e22" : "#a67c52";
+    const ground = darkMode ? "#6b4a36" : "#d4a574";
     const horizonColor = darkMode ? "rgba(255,255,255,0.92)" : "rgba(20,20,20,0.85)";
     const pitchText = darkMode ? "rgba(255,255,255,0.9)" : "rgba(20,20,20,0.85)";
 
