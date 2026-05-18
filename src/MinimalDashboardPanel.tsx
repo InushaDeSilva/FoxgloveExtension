@@ -1,5 +1,5 @@
-import { PanelExtensionContext } from "@foxglove/extension";
-import { ReactElement, useEffect, useLayoutEffect, useState } from "react";
+import { PanelExtensionContext, Topic } from "@foxglove/extension";
+import { ReactElement, useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 
 import { Compass } from "./components/compass2";
@@ -112,6 +112,13 @@ const initialData: MinimalDroneData = {
   imuMag: { x: 0, y: 0, z: 0 },
 };
 
+// IMU-compatible schema names
+const IMU_SCHEMA_NAMES = [
+  "sensor_msgs/Imu",
+  "sensor_msgs/msg/Imu",
+  "sensor_msgs/IMU",
+];
+
 // Helper function to convert quaternion to Euler angles
 function quaternionToEuler(quat: { x: number; y: number; z: number; w: number }): {
   roll: number;
@@ -141,20 +148,77 @@ function quaternionToEuler(quat: { x: number; y: number; z: number; w: number })
   return { roll, pitch, yaw };
 }
 
+// Persisted panel state
+interface PanelState {
+  selectedImuTopic?: string;
+}
+
 function MinimalDashboardPanel({ context }: { context: PanelExtensionContext }): ReactElement {
   const [droneData, setDroneData] = useState<MinimalDroneData>(initialData);
   const [darkMode] = useState(true);
   const [renderDone, setRenderDone] = useState<(() => void) | undefined>();
 
-  // Setup render handler and topic subscriptions
+  // Available topics from the data source
+  const [availableTopics, setAvailableTopics] = useState<readonly Topic[]>([]);
+
+  // Selected IMU topic — restored from saved panel state
+  const [selectedImuTopic, setSelectedImuTopic] = useState<string>(
+    () => (context.initialState as PanelState | undefined)?.selectedImuTopic ?? "",
+  );
+
+  // Container size from ResizeObserver (replaces window.innerWidth)
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(400);
+  const [containerHeight, setContainerHeight] = useState(400);
+
+  // --- ResizeObserver for panel-aware sizing ---
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        setContainerWidth(width);
+        setContainerHeight(height);
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // --- Persist selected IMU topic ---
+  useEffect(() => {
+    context.saveState({ selectedImuTopic } satisfies PanelState);
+  }, [context, selectedImuTopic]);
+
+  // --- Dynamic subscriptions based on selected IMU topic ---
+  useEffect(() => {
+    const subs: { topic: string }[] = [
+      { topic: "/fix" }, // GPS data
+      { topic: "/Odometry" }, // Odometry data
+    ];
+    if (selectedImuTopic) {
+      subs.push({ topic: selectedImuTopic });
+    }
+    context.subscribe(subs);
+  }, [context, selectedImuTopic]);
+
+  // --- Render handler & topic watching ---
   useLayoutEffect(() => {
     context.onRender = (renderState, done) => {
       setRenderDone(() => done);
+
+      // Capture available topics
+      if (renderState.topics) {
+        setAvailableTopics(renderState.topics);
+      }
 
       // Process messages in the current frame
       if (renderState.currentFrame) {
         const newDroneData = { ...droneData };
         let dataUpdated = false;
+
         // Process GPS data from NavSatFix messages
         const gpsMessages = renderState.currentFrame.filter((msg) => msg.topic === "/fix");
 
@@ -169,30 +233,34 @@ function MinimalDashboardPanel({ context }: { context: PanelExtensionContext }):
             dataUpdated = true;
           }
         }
-        // Process IMU data from IMU messages
-        const imuMessages = renderState.currentFrame.filter(
-          (msg) => msg.topic === "/imu/data_stamped" || msg.topic.includes("IMUwithTimeRef"),
-        );
 
-        if (imuMessages.length > 0) {
-          const imuMessage = imuMessages[imuMessages.length - 1];
-          const imuData = imuMessage?.message as unknown as ImuData;
+        // Process IMU data from the user-selected topic
+        if (selectedImuTopic) {
+          const imuMessages = renderState.currentFrame.filter(
+            (msg) => msg.topic === selectedImuTopic,
+          );
 
-          if (imuData) {
-            // Convert quaternion to Euler angles
-            const { roll, pitch, yaw } = quaternionToEuler(imuData.orientation);
+          if (imuMessages.length > 0) {
+            const imuMessage = imuMessages[imuMessages.length - 1];
+            const imuData = imuMessage?.message as unknown as ImuData;
 
-            newDroneData.roll = roll;
-            newDroneData.pitch = pitch;
-            newDroneData.heading = (yaw + 360) % 360; // Convert to 0-360 range
+            if (imuData) {
+              // Convert quaternion to Euler angles
+              const { roll, pitch, yaw } = quaternionToEuler(imuData.orientation);
 
-            // Update acceleration and angular velocity
-            newDroneData.imuAcceleration = imuData.linear_acceleration;
-            newDroneData.imuGyro = imuData.angular_velocity;
+              newDroneData.roll = roll;
+              newDroneData.pitch = pitch;
+              newDroneData.heading = (yaw + 360) % 360; // Convert to 0-360 range
 
-            dataUpdated = true;
+              // Update acceleration and angular velocity
+              newDroneData.imuAcceleration = imuData.linear_acceleration;
+              newDroneData.imuGyro = imuData.angular_velocity;
+
+              dataUpdated = true;
+            }
           }
         }
+
         // Process Odometry data
         const odometryMessages = renderState.currentFrame.filter((msg) =>
           msg.topic.includes("/Odometry"),
@@ -226,146 +294,226 @@ function MinimalDashboardPanel({ context }: { context: PanelExtensionContext }):
     // Watch for topic updates and messages
     context.watch("topics");
     context.watch("currentFrame");
-    // Subscribe to relevant topics as shown in the screenshots
-    context.subscribe([
-      { topic: "/fix" }, // GPS data
-      { topic: "/imu/data_stamped" }, // IMU data
-      { topic: "/Odometry" }, // Odometry data
-    ]);
-  }, [context, droneData]);
+  }, [context, droneData, selectedImuTopic]);
 
   // Call the done callback after render
   useEffect(() => {
     renderDone?.();
-  }, [renderDone]); // Inline styles for responsive layout
-  const [windowWidth, setWindowWidth] = useState(
-    typeof window !== "undefined" ? window.innerWidth : 1024,
+  }, [renderDone]);
+
+  // --- Filter topics that look like IMU topics ---
+  const imuTopics = availableTopics.filter((t) =>
+    IMU_SCHEMA_NAMES.some((schema) => t.schemaName === schema),
+  );
+  // Also include any topic the user might have selected that's not in the filtered list
+  // (covers edge cases where schema name doesn't match our list)
+  const allImuTopicNames = Array.from(
+    new Set([...imuTopics.map((t) => t.name), ...(selectedImuTopic ? [selectedImuTopic] : [])]),
   );
 
-  // Add window resize listener
-  useEffect(() => {
-    const handleResize = () => setWindowWidth(window.innerWidth);
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+  const handleImuTopicChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      setSelectedImuTopic(e.target.value);
+    },
+    [],
+  );
 
-  const containerStyle: React.CSSProperties = {
-    minHeight: "100vh",
-    backgroundColor: "#111827", // bg-gray-900
-    color: "white",
-    padding: windowWidth >= 640 ? "1rem" : "0.5rem", // sm:p-4 : p-2
+  // --- Responsive layout calculations based on container size ---
+  const isCompact = containerWidth < 480;
+  const isMedium = containerWidth >= 480 && containerWidth < 800;
+  const isWide = containerWidth >= 800;
+
+  const calculateComponentSize = () => {
+    let baseSize: number;
+    if (isWide) {
+      baseSize = Math.min((containerWidth - 80) / 3.5, (containerHeight - 140) * 0.55);
+    } else if (isMedium) {
+      baseSize = Math.min((containerWidth - 60) / 2.5, (containerHeight - 140) * 0.45);
+    } else {
+      baseSize = Math.min(containerWidth * 0.55, (containerHeight - 160) * 0.35);
+    }
+    // Clamp between 80px and 260px
+    return Math.max(80, Math.min(baseSize, 260));
   };
 
-  const mainContainerStyle: React.CSSProperties = {
+  const componentSize = calculateComponentSize();
+
+  // --- Styles ---
+  const containerStyle: React.CSSProperties = {
     width: "100%",
-    maxWidth: "72rem", // max-w-6xl
-    margin: "0 auto", // mx-auto
+    height: "100%",
+    overflow: "auto",
+    backgroundColor: "#111827",
+    color: "white",
+    padding: isCompact ? "0.375rem" : "0.75rem",
+    boxSizing: "border-box",
+    fontFamily: "'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif",
+  };
+
+  const topBarStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: isCompact ? "flex-start" : "center",
+    flexDirection: isCompact ? "column" : "row",
+    gap: "0.5rem",
+    marginBottom: isCompact ? "0.5rem" : "0.75rem",
+    padding: "0.375rem 0.5rem",
+    backgroundColor: "#1f2937",
+    borderRadius: "0.375rem",
+    flexShrink: 0,
+  };
+
+  const selectStyle: React.CSSProperties = {
+    flex: 1,
+    minWidth: 0,
+    padding: "0.3rem 0.5rem",
+    backgroundColor: "#374151",
+    color: "white",
+    border: "1px solid #4b5563",
+    borderRadius: "0.25rem",
+    fontSize: isCompact ? "0.75rem" : "0.8125rem",
+    fontFamily: "monospace",
+    cursor: "pointer",
+    outline: "none",
+  };
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: isCompact ? "0.6875rem" : "0.75rem",
+    color: "#9ca3af",
+    whiteSpace: "nowrap",
+    fontWeight: 600,
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
   };
 
   const gridStyle: React.CSSProperties = {
     display: "grid",
     gridTemplateColumns:
-      windowWidth >= 1024 ? "repeat(3, 1fr)" : windowWidth >= 640 ? "repeat(2, 1fr)" : "1fr",
-    gap: windowWidth >= 1024 ? "1.5rem" : windowWidth >= 640 ? "1rem" : "0.75rem",
+      isWide ? "repeat(3, 1fr)" : isMedium ? "repeat(2, 1fr)" : "1fr",
+    gap: isWide ? "1rem" : isMedium ? "0.75rem" : "0.5rem",
+    flex: 1,
+    minHeight: 0,
   };
 
   const cardStyle: React.CSSProperties = {
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
-    backgroundColor: "#1f2937", // bg-gray-800
-    borderRadius: "0.5rem", // rounded-lg
-    padding: windowWidth >= 640 ? "1rem" : "0.75rem", // sm:p-4 : p-3
+    justifyContent: "center",
+    backgroundColor: "#1f2937",
+    borderRadius: "0.5rem",
+    padding: isCompact ? "0.5rem" : "0.75rem",
+    minHeight: 0,
+    overflow: "hidden",
   };
 
   const imuCardStyle: React.CSSProperties = {
     ...cardStyle,
-    gridColumn: windowWidth >= 640 && windowWidth < 1024 ? "span 2" : "auto", // sm:col-span-2 lg:col-span-1
+    gridColumn: isMedium ? "span 2" : "auto",
   };
+
   const cardHeaderStyle: React.CSSProperties = {
-    fontSize: windowWidth >= 640 ? "1.125rem" : "1rem", // sm:text-lg : text-base
-    fontWeight: "600", // font-semibold
-    marginBottom: windowWidth >= 640 ? "0.5rem" : "0.25rem", // sm:mb-2 : mb-1
+    fontSize: isCompact ? "0.8125rem" : "0.9375rem",
+    fontWeight: 600,
+    marginBottom: "0.25rem",
+    color: "#e5e7eb",
   };
 
   const valueContainerStyle: React.CSSProperties = {
-    marginTop: windowWidth >= 640 ? "0.5rem" : "0.25rem", // sm:mt-2 : mt-1
+    marginTop: "0.25rem",
     textAlign: "center",
-    fontSize: "0.875rem", // text-sm
+    fontSize: "0.8125rem",
   };
 
   const valueStyle: React.CSSProperties = {
-    fontSize: windowWidth >= 640 ? "1.25rem" : "1.125rem", // sm:text-xl : text-lg
-    fontFamily: "monospace", // font-mono
+    fontSize: isCompact ? "0.9375rem" : "1.125rem",
+    fontFamily: "monospace",
+    color: "#f9fafb",
   };
-  // Calculate component sizes based on available space
-  const calculateComponentSize = () => {
-    // Base size for components based on screen size
-    let baseSize: number;
-
-    if (windowWidth >= 1024) {
-      // Large screens - can fit 3 components horizontally
-      baseSize = Math.min(windowWidth / 3.5, 200);
-    } else if (windowWidth >= 640) {
-      // Medium screens - can fit 2 components horizontally
-      baseSize = Math.min(windowWidth / 2.5, 200);
-    } else {
-      // Small screens - single column
-      baseSize = Math.min(windowWidth * 0.7, 200);
-    }
-
-    return Math.max(120, Math.min(baseSize, 200)); // Clamp between 120px and 200px
-  };
-
-  // Dynamically sized components
-  const componentSize = calculateComponentSize();
 
   return (
-    <div style={containerStyle}>
-      <div style={mainContainerStyle}>
-        {/* Main display area that adapts to screen orientation */}
-        <div style={gridStyle}>
-          <div style={cardStyle}>
-            <h2 style={cardHeaderStyle}>Horizon</h2>
-            <AttitudeIndicator
-              roll={droneData.roll}
-              pitch={droneData.pitch}
-              darkMode={darkMode}
-              size={componentSize}
-            />
-            <div style={valueContainerStyle}>
-              <span style={valueStyle}>{droneData.altitude.toFixed(1)} m</span>
-            </div>
-          </div>
+    <div ref={containerRef} style={containerStyle}>
+      {/* Topic picker bar */}
+      <div style={topBarStyle}>
+        <span style={labelStyle}>IMU Topic</span>
+        <select
+          style={selectStyle}
+          value={selectedImuTopic}
+          onChange={handleImuTopicChange}
+        >
+          <option value="">— Select an IMU topic —</option>
+          {allImuTopicNames.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+          {/* Show all available topics in a separate group for manual override */}
+          {availableTopics.length > 0 && (
+            <optgroup label="All topics">
+              {availableTopics
+                .filter((t) => !allImuTopicNames.includes(t.name))
+                .map((t) => (
+                  <option key={t.name} value={t.name}>
+                    {t.name} ({t.schemaName})
+                  </option>
+                ))}
+            </optgroup>
+          )}
+        </select>
+      </div>
 
-          <div style={cardStyle}>
-            <h2 style={cardHeaderStyle}>Compass</h2>
-            <Compass heading={droneData.heading} darkMode={darkMode} size={componentSize} />
-            <div style={valueContainerStyle}>
-              <span style={valueStyle}>{droneData.heading.toFixed(1)}°</span>
-            </div>
+      {/* Main instrument grid */}
+      <div style={gridStyle}>
+        <div style={cardStyle}>
+          <h2 style={cardHeaderStyle}>Horizon</h2>
+          <AttitudeIndicator
+            roll={droneData.roll}
+            pitch={droneData.pitch}
+            darkMode={darkMode}
+            size={componentSize}
+          />
+          <div style={valueContainerStyle}>
+            <span style={valueStyle}>{droneData.altitude.toFixed(1)} m</span>
           </div>
+        </div>
 
-          <div style={imuCardStyle}>
-            <h2 style={cardHeaderStyle}>IMU Data</h2>
-            <IMUDisplay
-              acceleration={droneData.imuAcceleration}
-              gyro={droneData.imuGyro}
-              mag={droneData.imuMag}
-              darkMode={darkMode}
-              size={componentSize}
-            />
-            <div style={valueContainerStyle}>
-              <span style={{ fontFamily: "monospace" }}>
-                Accel:{" "}
-                {Math.sqrt(
-                  Math.pow(droneData.imuAcceleration.x, 2) +
-                    Math.pow(droneData.imuAcceleration.y, 2) +
-                    Math.pow(droneData.imuAcceleration.z, 2),
-                ).toFixed(2)}{" "}
-                m/s²
+        <div style={cardStyle}>
+          <h2 style={cardHeaderStyle}>Compass</h2>
+          <Compass heading={droneData.heading} darkMode={darkMode} size={componentSize} />
+          <div style={valueContainerStyle}>
+            <span style={valueStyle}>{droneData.heading.toFixed(1)}°</span>
+          </div>
+        </div>
+
+        <div style={imuCardStyle}>
+          <h2 style={cardHeaderStyle}>
+            IMU Data
+            {selectedImuTopic ? (
+              <span style={{ fontSize: "0.6875rem", color: "#6b7280", marginLeft: "0.5rem", fontWeight: 400 }}>
+                {selectedImuTopic}
               </span>
-            </div>
+            ) : (
+              <span style={{ fontSize: "0.6875rem", color: "#ef4444", marginLeft: "0.5rem", fontWeight: 400 }}>
+                No topic selected
+              </span>
+            )}
+          </h2>
+          <IMUDisplay
+            acceleration={droneData.imuAcceleration}
+            gyro={droneData.imuGyro}
+            mag={droneData.imuMag}
+            darkMode={darkMode}
+            size={componentSize}
+          />
+          <div style={valueContainerStyle}>
+            <span style={{ fontFamily: "monospace" }}>
+              Accel:{" "}
+              {Math.sqrt(
+                Math.pow(droneData.imuAcceleration.x, 2) +
+                  Math.pow(droneData.imuAcceleration.y, 2) +
+                  Math.pow(droneData.imuAcceleration.z, 2),
+              ).toFixed(2)}{" "}
+              m/s²
+            </span>
           </div>
         </div>
       </div>
