@@ -142,6 +142,120 @@ export function quaternionToEuler(quat: { x: number; y: number; z: number; w: nu
   return { roll, pitch, yaw };
 }
 
+function readVec3(
+  obj: unknown,
+  label: string,
+): { ok: true; v: { x: number; y: number; z: number } } | { ok: false; error: string } {
+  if (!obj || typeof obj !== "object") {
+    return { ok: false, error: `Missing ${label} (expected sensor_msgs/Imu).` };
+  }
+  const o = obj as Record<string, unknown>;
+  const x = Number(o.x);
+  const y = Number(o.y);
+  const z = Number(o.z);
+  if (![x, y, z].every((n) => Number.isFinite(n))) {
+    return { ok: false, error: `${label} must have finite numeric x, y, z.` };
+  }
+  return { ok: true, v: { x, y, z } };
+}
+
+/**
+ * Validates and parses a message as sensor_msgs/Imu-style data for the ISL panels.
+ * Wrong schema or bad quaternions return `ok: false` instead of throwing.
+ */
+export function parseImuMessagePayload(
+  message: unknown,
+):
+  | {
+      ok: true;
+      roll: number;
+      pitch: number;
+      yaw: number;
+      linear_acceleration: ImuData["linear_acceleration"];
+      angular_velocity: ImuData["angular_velocity"];
+    }
+  | { ok: false; error: string } {
+  if (message == undefined || typeof message !== "object") {
+    return { ok: false, error: "Message is missing or not an object (not sensor_msgs/Imu)." };
+  }
+  const m = message as Record<string, unknown>;
+  const orient = m.orientation;
+  if (!orient || typeof orient !== "object") {
+    return {
+      ok: false,
+      error:
+        "No orientation field — this topic does not look like sensor_msgs/Imu. Pick an Imu topic in panel settings.",
+    };
+  }
+  const qrec = orient as Record<string, unknown>;
+  const quat = {
+    x: Number(qrec.x),
+    y: Number(qrec.y),
+    z: Number(qrec.z),
+    w: Number(qrec.w),
+  };
+  if (![quat.x, quat.y, quat.z, quat.w].every((n) => Number.isFinite(n))) {
+    return { ok: false, error: "Orientation quaternion has invalid (non-finite) components." };
+  }
+  let roll: number;
+  let pitch: number;
+  let yaw: number;
+  try {
+    ({ roll, pitch, yaw } = quaternionToEuler(quat));
+  } catch {
+    return { ok: false, error: "Failed to convert orientation quaternion to Euler angles." };
+  }
+  if (![roll, pitch, yaw].every((n) => Number.isFinite(n))) {
+    return { ok: false, error: "Computed roll/pitch/yaw is not finite." };
+  }
+
+  const la = readVec3(m.linear_acceleration, "linear_acceleration");
+  if (!la.ok) {
+    return la;
+  }
+  const av = readVec3(m.angular_velocity, "angular_velocity");
+  if (!av.ok) {
+    return av;
+  }
+
+  return {
+    ok: true,
+    roll,
+    pitch,
+    yaw,
+    linear_acceleration: la.v,
+    angular_velocity: av.v,
+  };
+}
+
+/** Parse geometry_msgs/Pose orientation (or Imu.orientation) without throwing. */
+export function parseOrientationOnly(
+  orientation: unknown,
+): { ok: true; roll: number; pitch: number; yaw: number } | { ok: false; error: string } {
+  if (!orientation || typeof orientation !== "object") {
+    return { ok: false, error: "Missing orientation." };
+  }
+  const qrec = orientation as Record<string, unknown>;
+  const quat = {
+    x: Number(qrec.x),
+    y: Number(qrec.y),
+    z: Number(qrec.z),
+    w: Number(qrec.w),
+  };
+  if (![quat.x, quat.y, quat.z, quat.w].every((n) => Number.isFinite(n))) {
+    return { ok: false, error: "Invalid orientation quaternion." };
+  }
+  try {
+    const { roll, pitch, yaw } = quaternionToEuler(quat);
+    if (![roll, pitch, yaw].every((n) => Number.isFinite(n))) {
+      return { ok: false, error: "Computed orientation is not finite." };
+    }
+    return { ok: true, roll, pitch, yaw };
+  } catch {
+    return { ok: false, error: "Could not parse orientation." };
+  }
+}
+
 export function pickDefaultImuTopic(topics: readonly Topic[]): string | undefined {
   const match = topics.find((t) =>
     IMU_SCHEMA_NAMES.some((schema) => t.schemaName === schema),

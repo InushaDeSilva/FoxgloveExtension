@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 
 import { IMUDisplay } from "../components/imu-display";
 import { PanelInfoTip } from "../components/panel-info-tip";
+import { TopicIngestErrorBanner } from "../components/topic-ingest-error-banner";
 import { maxSquareInstrumentSize } from "./telemetryShared";
 import { useImuTopicPanelSettings } from "./useImuTopicPanelSettings";
 import { useIslTelemetryPanel } from "./useIslTelemetryPanel";
@@ -22,6 +23,7 @@ function ImuPanel({ context }: { context: PanelExtensionContext }): ReactElement
     setSelectedImuTopic,
     allImuTopicNames,
     baseFont,
+    imuIngestError,
   } = useIslTelemetryPanel(context);
 
   useImuTopicPanelSettings(
@@ -100,6 +102,7 @@ function ImuPanel({ context }: { context: PanelExtensionContext }): ReactElement
 
   return (
     <div ref={containerRef} style={containerStyle}>
+      <TopicIngestErrorBanner message={imuIngestError ?? ""} topic={selectedImuTopic} theme={theme} />
       <div style={cardStyle}>
         <div style={plotTip}>
           <PanelInfoTip

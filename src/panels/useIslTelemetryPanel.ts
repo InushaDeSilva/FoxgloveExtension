@@ -11,13 +11,13 @@ import {
   DARK,
   LIGHT,
   makeInitialDroneData,
+  parseImuMessagePayload,
+  parseOrientationOnly,
   pickDefaultImuTopic,
   type GpsData,
-  type ImuData,
   type MinimalDroneData,
   type OdometryData,
   type PanelImuTopicState,
-  quaternionToEuler,
 } from "./telemetryShared";
 
 export function useIslTelemetryPanel(context: PanelExtensionContext) {
@@ -28,6 +28,8 @@ export function useIslTelemetryPanel(context: PanelExtensionContext) {
   const [selectedImuTopic, setSelectedImuTopic] = useState<string>(
     () => (context.initialState as PanelImuTopicState | undefined)?.selectedImuTopic ?? "",
   );
+
+  const [imuIngestError, setImuIngestError] = useState<string | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(400);
@@ -67,6 +69,12 @@ export function useIslTelemetryPanel(context: PanelExtensionContext) {
   }, [availableTopics, selectedImuTopic]);
 
   useEffect(() => {
+    if (selectedImuTopic === "") {
+      setImuIngestError(null);
+    }
+  }, [selectedImuTopic]);
+
+  useEffect(() => {
     const subs: { topic: string }[] = [{ topic: "/fix" }, { topic: "/Odometry" }];
     if (selectedImuTopic) {
       subs.push({ topic: selectedImuTopic });
@@ -87,14 +95,31 @@ export function useIslTelemetryPanel(context: PanelExtensionContext) {
 
       if (renderState.didSeek) {
         setDroneData(makeInitialDroneData());
+        setImuIngestError(null);
       }
 
       if (renderState.currentFrame) {
+        const frame = renderState.currentFrame;
+
+        let imuParseResult: ReturnType<typeof parseImuMessagePayload> | null = null;
+        if (selectedImuTopic) {
+          const imuMessages = frame.filter((msg) => msg.topic === selectedImuTopic);
+          if (imuMessages.length > 0) {
+            const raw = imuMessages[imuMessages.length - 1]?.message;
+            imuParseResult = parseImuMessagePayload(raw);
+            if (!imuParseResult.ok) {
+              setImuIngestError(imuParseResult.error);
+            } else {
+              setImuIngestError(null);
+            }
+          }
+        }
+
         setDroneData((prev) => {
           const next = { ...prev };
           let dataUpdated = false;
 
-          const gpsMessages = renderState.currentFrame!.filter((msg) => msg.topic === "/fix");
+          const gpsMessages = frame.filter((msg) => msg.topic === "/fix");
           if (gpsMessages.length > 0) {
             const gpsData = gpsMessages[gpsMessages.length - 1]?.message as unknown as GpsData;
             if (gpsData) {
@@ -107,36 +132,28 @@ export function useIslTelemetryPanel(context: PanelExtensionContext) {
           }
 
           let imuUpdatedThisFrame = false;
-          if (selectedImuTopic) {
-            const imuMessages = renderState.currentFrame!.filter(
-              (msg) => msg.topic === selectedImuTopic,
-            );
-            if (imuMessages.length > 0) {
-              const imuData = imuMessages[imuMessages.length - 1]?.message as unknown as ImuData;
-              if (imuData) {
-                const { roll, pitch, yaw } = quaternionToEuler(imuData.orientation);
-                next.roll = roll;
-                next.pitch = pitch;
-                next.heading = (yaw + 360) % 360;
-                next.imuAcceleration = { ...imuData.linear_acceleration };
-                next.imuGyro = { ...imuData.angular_velocity };
-                dataUpdated = true;
-                imuUpdatedThisFrame = true;
-              }
-            }
+          if (selectedImuTopic && imuParseResult?.ok) {
+            next.roll = imuParseResult.roll;
+            next.pitch = imuParseResult.pitch;
+            next.heading = (imuParseResult.yaw + 360) % 360;
+            next.imuAcceleration = { ...imuParseResult.linear_acceleration };
+            next.imuGyro = { ...imuParseResult.angular_velocity };
+            dataUpdated = true;
+            imuUpdatedThisFrame = true;
           }
 
-          const odometryMessages = renderState.currentFrame!.filter((msg) =>
-            msg.topic.includes("/Odometry"),
-          );
+          const odometryMessages = frame.filter((msg) => msg.topic.includes("/Odometry"));
           if (odometryMessages.length > 0 && !imuUpdatedThisFrame) {
             const odometryData = odometryMessages[odometryMessages.length - 1]?.message as unknown as OdometryData;
-            if (odometryData?.pose?.pose?.orientation) {
-              const { roll, pitch, yaw } = quaternionToEuler(odometryData.pose.pose.orientation);
-              next.roll = roll;
-              next.pitch = pitch;
-              next.heading = (yaw + 360) % 360;
-              dataUpdated = true;
+            const orient = odometryData?.pose?.pose?.orientation;
+            if (orient) {
+              const parsed = parseOrientationOnly(orient);
+              if (parsed.ok) {
+                next.roll = parsed.roll;
+                next.pitch = parsed.pitch;
+                next.heading = (parsed.yaw + 360) % 360;
+                dataUpdated = true;
+              }
             }
           }
 
@@ -172,5 +189,6 @@ export function useIslTelemetryPanel(context: PanelExtensionContext) {
     allImuTopicNames,
     baseFont,
     shortSide,
+    imuIngestError,
   };
 }

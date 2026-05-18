@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 
 import { Compass } from "../components/compass2";
 import { PanelInfoTip } from "../components/panel-info-tip";
+import { TopicIngestErrorBanner } from "../components/topic-ingest-error-banner";
 import { maxSquareInstrumentSize } from "./telemetryShared";
 import { useImuTopicPanelSettings } from "./useImuTopicPanelSettings";
 import { useIslTelemetryPanel } from "./useIslTelemetryPanel";
@@ -22,6 +23,7 @@ function HeadingPanel({ context }: { context: PanelExtensionContext }): ReactEle
     setSelectedImuTopic,
     allImuTopicNames,
     baseFont,
+    imuIngestError,
   } = useIslTelemetryPanel(context);
 
   useImuTopicPanelSettings(
@@ -104,6 +106,7 @@ function HeadingPanel({ context }: { context: PanelExtensionContext }): ReactEle
 
   return (
     <div ref={containerRef} style={containerStyle}>
+      <TopicIngestErrorBanner message={imuIngestError ?? ""} topic={selectedImuTopic} theme={theme} />
       <div style={cardStyle}>
         <div style={plotFrame}>
           <div style={tipWrap}>
