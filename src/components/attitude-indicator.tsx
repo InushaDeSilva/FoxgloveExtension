@@ -59,27 +59,27 @@ export function AttitudeIndicator({ roll, pitch, size = 200, darkMode = true }: 
     ctx.clip();
 
     ctx.translate(centerX, centerY);
-    ctx.rotate(((roll + 180) * Math.PI) / 180);
+    ctx.rotate((-roll * Math.PI) / 180);
 
     const pitchOffset = (adjustedPitch / 45) * radius;
     const extendedSize = radius * 3;
 
-    // Ground
+    // Ground (below horizon)
     ctx.beginPath();
-    ctx.rect(-extendedSize, -pitchOffset, extendedSize * 2, extendedSize);
+    ctx.rect(-extendedSize, pitchOffset, extendedSize * 2, extendedSize);
     ctx.fillStyle = ground;
     ctx.fill();
 
-    // Sky
+    // Sky (above horizon)
     ctx.beginPath();
-    ctx.rect(-extendedSize, -extendedSize, extendedSize * 2, extendedSize - pitchOffset);
+    ctx.rect(-extendedSize, -extendedSize, extendedSize * 2, extendedSize + pitchOffset);
     ctx.fillStyle = sky;
     ctx.fill();
 
     // Horizon line
     ctx.beginPath();
-    ctx.moveTo(-radius, -pitchOffset);
-    ctx.lineTo(radius, -pitchOffset);
+    ctx.moveTo(-radius, pitchOffset);
+    ctx.lineTo(radius, pitchOffset);
     ctx.strokeStyle = horizonColor;
     ctx.lineWidth = 2 * s;
     ctx.stroke();
@@ -94,7 +94,7 @@ export function AttitudeIndicator({ roll, pitch, size = 200, darkMode = true }: 
     // 20 degree pitch lines
     for (let i = -40; i <= 40; i += 20) {
       if (i === 0) continue;
-      const lineY = -pitchOffset - (i / 45) * radius;
+      const lineY = pitchOffset - (i / 45) * radius;
       if (lineY > -radius && lineY < radius) {
         const lineWidth = radius * 0.3;
         ctx.beginPath();
@@ -109,7 +109,7 @@ export function AttitudeIndicator({ roll, pitch, size = 200, darkMode = true }: 
     // 10 degree pitch lines (shorter)
     for (let i = -30; i <= 30; i += 10) {
       if (i % 20 === 0) continue;
-      const lineY = -pitchOffset + (i / 45) * radius;
+      const lineY = pitchOffset - (i / 45) * radius;
       if (lineY > -radius && lineY < radius) {
         const lineWidth = radius * 0.15;
         ctx.beginPath();
@@ -122,7 +122,7 @@ export function AttitudeIndicator({ roll, pitch, size = 200, darkMode = true }: 
     // 5 degree pitch lines (shortest)
     for (let i = -35; i <= 35; i += 5) {
       if (i % 10 === 0) continue;
-      const lineY = -pitchOffset - (i / 45) * radius;
+      const lineY = pitchOffset - (i / 45) * radius;
       if (lineY > -radius && lineY < radius) {
         const lineWidth = radius * 0.1;
         ctx.beginPath();

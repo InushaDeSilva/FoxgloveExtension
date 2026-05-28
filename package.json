@@ -4,7 +4,7 @@
   "description": "Drone telemetry and IMU visualization panels for Foxglove Studio",
   "publisher": "ISL",
   "homepage": "https://github.com/TentacleSama4254/FoxgloveExtension",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "license": "UNLICENSED",
   "main": "./dist/extension.js",
   "keywords": [],

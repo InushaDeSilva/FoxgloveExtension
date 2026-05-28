@@ -1,15 +1,31 @@
 "use client";
 
 import type { PanelExtensionContext } from "@foxglove/extension";
-import { ReactElement, useEffect, useMemo } from "react";
+import { ReactElement, useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import { Compass } from "../components/compass2";
 import { PanelInfoTip } from "../components/panel-info-tip";
 import { TopicIngestErrorBanner } from "../components/topic-ingest-error-banner";
-import { maxSquareInstrumentSize } from "./telemetryShared";
+import {
+  applyOrientationAdjustments,
+  maxSquareInstrumentSize,
+  type HeadingPanelState,
+  type QuadrantBiasDeg,
+} from "./telemetryShared";
 import { useImuTopicPanelSettings } from "./useImuTopicPanelSettings";
 import { useIslTelemetryPanel } from "./useIslTelemetryPanel";
+
+const QUADRANT_OPTIONS = [
+  { label: "0°", value: 0 },
+  { label: "90°", value: 90 },
+  { label: "180°", value: 180 },
+  { label: "270°", value: 270 },
+] as const;
+
+function isQuadrant(v: unknown): v is QuadrantBiasDeg {
+  return v === 0 || v === 90 || v === 180 || v === 270;
+}
 
 function HeadingPanel({ context }: { context: PanelExtensionContext }): ReactElement {
   const {
@@ -26,6 +42,57 @@ function HeadingPanel({ context }: { context: PanelExtensionContext }): ReactEle
     imuIngestError,
   } = useIslTelemetryPanel(context);
 
+  const saved = context.initialState as HeadingPanelState | undefined;
+  const [flipYaw, setFlipYaw] = useState(saved?.flipYaw ?? false);
+  const [yawBiasDeg, setYawBiasDeg] = useState<QuadrantBiasDeg>(
+    isQuadrant(saved?.yawBiasDeg) ? saved.yawBiasDeg : 0,
+  );
+
+  useEffect(() => {
+    context.saveState({
+      selectedImuTopic,
+      flipYaw,
+      yawBiasDeg,
+    } satisfies HeadingPanelState);
+  }, [context, selectedImuTopic, flipYaw, yawBiasDeg]);
+
+  const handleDebugUpdate = useCallback(
+    (action: { action: string; payload: { path: readonly string[]; value?: unknown } }) => {
+      const field = action.payload.path[1];
+      const val = action.payload.value;
+      switch (field) {
+        case "flipYaw":
+          setFlipYaw(Boolean(val));
+          break;
+        case "yawBiasDeg":
+          if (isQuadrant(val)) setYawBiasDeg(val);
+          break;
+      }
+    },
+    [],
+  );
+
+  const extraSettings = useMemo(
+    () => ({
+      extraNodes: {
+        debug: {
+          label: "Display / debug",
+          fields: {
+            flipYaw: { label: "Flip yaw", input: "boolean" as const, value: flipYaw },
+            yawBiasDeg: {
+              label: "Yaw bias",
+              input: "select" as const,
+              value: yawBiasDeg,
+              options: [...QUADRANT_OPTIONS],
+            },
+          },
+        },
+      },
+      onExtraFieldUpdate: handleDebugUpdate,
+    }),
+    [flipYaw, yawBiasDeg, handleDebugUpdate],
+  );
+
   useImuTopicPanelSettings(
     context,
     availableTopics,
@@ -33,6 +100,7 @@ function HeadingPanel({ context }: { context: PanelExtensionContext }): ReactEle
     selectedImuTopic,
     setSelectedImuTopic,
     "sensor_msgs/Imu orientation sets yaw when messages arrive; otherwise /Odometry pose orientation.",
+    extraSettings,
   );
 
   useEffect(() => {
@@ -48,6 +116,11 @@ function HeadingPanel({ context }: { context: PanelExtensionContext }): ReactEle
     const innerH = containerHeight - 2 * outerPad - footerReserve;
     return maxSquareInstrumentSize(innerW, innerH);
   }, [containerWidth, containerHeight, outerPad]);
+
+  const adjusted = applyOrientationAdjustments(droneData.roll, droneData.pitch, droneData.heading, {
+    flipYaw,
+    yawBiasDeg,
+  });
 
   const containerStyle: React.CSSProperties = {
     width: "100%",
@@ -115,10 +188,10 @@ function HeadingPanel({ context }: { context: PanelExtensionContext }): ReactEle
               title="Heading (yaw): from selected IMU orientation when messages arrive; otherwise from /Odometry pose orientation."
             />
           </div>
-          <Compass heading={droneData.heading} darkMode={theme.isDark} size={componentSize} />
+          <Compass heading={adjusted.yaw} darkMode={theme.isDark} size={componentSize} />
         </div>
         <div style={degRow}>
-          <span>{droneData.heading.toFixed(1)}</span>
+          <span>{adjusted.yaw.toFixed(1)}</span>
           <span style={{ fontSize: `${Math.max(10, baseFont - 2)}px`, color: theme.textDim }}>°</span>
         </div>
       </div>

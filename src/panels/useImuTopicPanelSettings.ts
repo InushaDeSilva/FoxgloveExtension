@@ -1,10 +1,16 @@
-import type { PanelExtensionContext, SettingsTree, Topic } from "@foxglove/extension";
+import type { PanelExtensionContext, SettingsTree, SettingsTreeAction, SettingsTreeNodes, Topic } from "@foxglove/extension";
 import { useEffect } from "react";
 
 import { buildImuTopicSelectOptions } from "./telemetryShared";
 
+export interface ExtraPanelSettingsOptions {
+  extraNodes?: SettingsTreeNodes;
+  onExtraFieldUpdate?: (action: SettingsTreeAction) => void;
+}
+
 /**
- * Registers the Foxglove sidebar "Panel" settings editor with an IMU topic dropdown.
+ * Registers the Foxglove sidebar "Panel" settings editor with an IMU topic
+ * dropdown plus optional extra node sections (e.g. Display / debug controls).
  */
 export function useImuTopicPanelSettings(
   context: PanelExtensionContext,
@@ -13,6 +19,7 @@ export function useImuTopicPanelSettings(
   selectedImuTopic: string,
   setSelectedImuTopic: (topic: string) => void,
   helpText: string,
+  extra?: ExtraPanelSettingsOptions,
 ): void {
   useEffect(() => {
     const options = buildImuTopicSelectOptions(availableTopics, allImuTopicNames);
@@ -22,16 +29,19 @@ export function useImuTopicPanelSettings(
         if (action.action !== "update") {
           return;
         }
-        if (action.payload.input !== "select") {
-          return;
-        }
         const path = action.payload.path;
-        if (path.length !== 2 || path[0] !== "general" || path[1] !== "imuTopic") {
+        if (path.length < 2) {
           return;
         }
-        const raw = action.payload.value;
-        const next = Array.isArray(raw) ? raw[0] : raw;
-        setSelectedImuTopic(next === undefined || next === null ? "" : String(next));
+
+        if (path[0] === "general" && path[1] === "imuTopic") {
+          const raw = action.payload.value;
+          const next = Array.isArray(raw) ? raw[0] : raw;
+          setSelectedImuTopic(next === undefined || next === null ? "" : String(next));
+          return;
+        }
+
+        extra?.onExtraFieldUpdate?.(action);
       },
       nodes: {
         general: {
@@ -46,9 +56,10 @@ export function useImuTopicPanelSettings(
             },
           },
         },
+        ...extra?.extraNodes,
       },
     };
 
     context.updatePanelSettingsEditor(tree);
-  }, [context, availableTopics, allImuTopicNames, selectedImuTopic, setSelectedImuTopic, helpText]);
+  }, [context, availableTopics, allImuTopicNames, selectedImuTopic, setSelectedImuTopic, helpText, extra]);
 }

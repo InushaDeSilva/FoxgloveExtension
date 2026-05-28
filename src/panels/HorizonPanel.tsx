@@ -1,15 +1,31 @@
 "use client";
 
 import type { PanelExtensionContext } from "@foxglove/extension";
-import { ReactElement, useEffect, useMemo } from "react";
+import { ReactElement, useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import { AttitudeIndicator } from "../components/attitude-indicator";
 import { PanelInfoTip } from "../components/panel-info-tip";
 import { TopicIngestErrorBanner } from "../components/topic-ingest-error-banner";
-import { maxSquareInstrumentSize } from "./telemetryShared";
+import {
+  applyOrientationAdjustments,
+  maxSquareInstrumentSize,
+  type HorizonPanelState,
+  type QuadrantBiasDeg,
+} from "./telemetryShared";
 import { useImuTopicPanelSettings } from "./useImuTopicPanelSettings";
 import { useIslTelemetryPanel } from "./useIslTelemetryPanel";
+
+const QUADRANT_OPTIONS = [
+  { label: "0°", value: 0 },
+  { label: "90°", value: 90 },
+  { label: "180°", value: 180 },
+  { label: "270°", value: 270 },
+] as const;
+
+function isQuadrant(v: unknown): v is QuadrantBiasDeg {
+  return v === 0 || v === 90 || v === 180 || v === 270;
+}
 
 function HorizonPanel({ context }: { context: PanelExtensionContext }): ReactElement {
   const {
@@ -26,6 +42,76 @@ function HorizonPanel({ context }: { context: PanelExtensionContext }): ReactEle
     imuIngestError,
   } = useIslTelemetryPanel(context);
 
+  const saved = context.initialState as HorizonPanelState | undefined;
+  const [flipRoll, setFlipRoll] = useState(saved?.flipRoll ?? false);
+  const [flipPitch, setFlipPitch] = useState(saved?.flipPitch ?? false);
+  const [rollBiasDeg, setRollBiasDeg] = useState<QuadrantBiasDeg>(
+    isQuadrant(saved?.rollBiasDeg) ? saved.rollBiasDeg : 0,
+  );
+  const [pitchBiasDeg, setPitchBiasDeg] = useState<QuadrantBiasDeg>(
+    isQuadrant(saved?.pitchBiasDeg) ? saved.pitchBiasDeg : 0,
+  );
+
+  useEffect(() => {
+    context.saveState({
+      selectedImuTopic,
+      flipRoll,
+      flipPitch,
+      rollBiasDeg,
+      pitchBiasDeg,
+    } satisfies HorizonPanelState);
+  }, [context, selectedImuTopic, flipRoll, flipPitch, rollBiasDeg, pitchBiasDeg]);
+
+  const handleDebugUpdate = useCallback(
+    (action: { action: string; payload: { path: readonly string[]; value?: unknown } }) => {
+      const field = action.payload.path[1];
+      const val = action.payload.value;
+      switch (field) {
+        case "flipRoll":
+          setFlipRoll(Boolean(val));
+          break;
+        case "flipPitch":
+          setFlipPitch(Boolean(val));
+          break;
+        case "rollBiasDeg":
+          if (isQuadrant(val)) setRollBiasDeg(val);
+          break;
+        case "pitchBiasDeg":
+          if (isQuadrant(val)) setPitchBiasDeg(val);
+          break;
+      }
+    },
+    [],
+  );
+
+  const extraSettings = useMemo(
+    () => ({
+      extraNodes: {
+        debug: {
+          label: "Display / debug",
+          fields: {
+            flipRoll: { label: "Flip roll", input: "boolean" as const, value: flipRoll },
+            flipPitch: { label: "Flip pitch", input: "boolean" as const, value: flipPitch },
+            rollBiasDeg: {
+              label: "Roll bias",
+              input: "select" as const,
+              value: rollBiasDeg,
+              options: [...QUADRANT_OPTIONS],
+            },
+            pitchBiasDeg: {
+              label: "Pitch bias",
+              input: "select" as const,
+              value: pitchBiasDeg,
+              options: [...QUADRANT_OPTIONS],
+            },
+          },
+        },
+      },
+      onExtraFieldUpdate: handleDebugUpdate,
+    }),
+    [flipRoll, flipPitch, rollBiasDeg, pitchBiasDeg, handleDebugUpdate],
+  );
+
   useImuTopicPanelSettings(
     context,
     availableTopics,
@@ -33,6 +119,7 @@ function HorizonPanel({ context }: { context: PanelExtensionContext }): ReactEle
     selectedImuTopic,
     setSelectedImuTopic,
     "sensor_msgs/Imu used for roll/pitch when messages arrive. Choose in this list (gear icon → Panel).",
+    extraSettings,
   );
 
   useEffect(() => {
@@ -46,6 +133,13 @@ function HorizonPanel({ context }: { context: PanelExtensionContext }): ReactEle
     const innerH = containerHeight - 2 * outerPad - 40;
     return maxSquareInstrumentSize(innerW, innerH);
   }, [containerWidth, containerHeight, outerPad]);
+
+  const adjusted = applyOrientationAdjustments(droneData.roll, droneData.pitch, droneData.heading, {
+    flipRoll,
+    flipPitch,
+    rollBiasDeg,
+    pitchBiasDeg,
+  });
 
   const containerStyle: React.CSSProperties = {
     width: "100%",
@@ -133,8 +227,8 @@ function HorizonPanel({ context }: { context: PanelExtensionContext }): ReactEle
               />
             </div>
             <AttitudeIndicator
-              roll={droneData.roll}
-              pitch={droneData.pitch}
+              roll={adjusted.roll}
+              pitch={adjusted.pitch}
               darkMode={theme.isDark}
               size={componentSize}
             />

@@ -309,3 +309,36 @@ export function maxSquareInstrumentSize(innerWidth: number, innerHeight: number,
 export interface PanelImuTopicState {
   selectedImuTopic?: string;
 }
+
+export type QuadrantBiasDeg = 0 | 90 | 180 | 270;
+
+export interface HorizonPanelState extends PanelImuTopicState {
+  flipRoll?: boolean;
+  flipPitch?: boolean;
+  rollBiasDeg?: QuadrantBiasDeg;
+  pitchBiasDeg?: QuadrantBiasDeg;
+}
+
+export interface HeadingPanelState extends PanelImuTopicState {
+  flipYaw?: boolean;
+  yawBiasDeg?: QuadrantBiasDeg;
+}
+
+export function applyOrientationAdjustments(
+  roll: number,
+  pitch: number,
+  yaw: number,
+  opts: {
+    flipRoll?: boolean;
+    flipPitch?: boolean;
+    flipYaw?: boolean;
+    rollBiasDeg?: number;
+    pitchBiasDeg?: number;
+    yawBiasDeg?: number;
+  },
+): { roll: number; pitch: number; yaw: number } {
+  const r = (opts.flipRoll ? -roll : roll) + (opts.rollBiasDeg ?? 0);
+  const p = (opts.flipPitch ? -pitch : pitch) + (opts.pitchBiasDeg ?? 0);
+  const y = (((opts.flipYaw ? -yaw : yaw) + (opts.yawBiasDeg ?? 0)) % 360 + 360) % 360;
+  return { roll: r, pitch: p, yaw: y };
+}
